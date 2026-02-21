@@ -11,6 +11,7 @@ import { nodeRoutes } from './routes/nodes'
 import { planRoutes } from './routes/plans'
 import { internalRoutes } from './routes/internal'
 import { versionRoutes } from './routes/versions'
+import { accountRoutes } from './routes/account'
 
 //  Startup env validation 
 const REQUIRED_ENV = [
@@ -62,6 +63,7 @@ app.register(nodeRoutes,    { prefix: '/api/nodes' })
 app.register(planRoutes,    { prefix: '/api/plans' })
 app.register(internalRoutes, { prefix: '/internal' })
 app.register(versionRoutes, { prefix: '/api' })
+app.register(accountRoutes, { prefix: '/api/account' })
 
 app.get('/health', async () => ({ status: 'ok' }))
 
