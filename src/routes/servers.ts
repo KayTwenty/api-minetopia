@@ -6,11 +6,11 @@ import { agentClient } from '../lib/agentClient'
 import { authenticate } from '../middleware/auth'
 
 const CreateServerSchema = z.object({
-  name:       z.string().min(3).max(32),
-  plan_id:    z.string().uuid(),
-  mc_version: z.string().default('1.21.4'),
-  server_type: z.enum(['vanilla']).default('vanilla'), // expand later
-  port:       z.number().int().min(1024).max(65535).optional(),
+  name:        z.string().min(3).max(32),
+  plan_id:     z.string().uuid(),
+  mc_version:  z.string().default('1.21.4'),
+  server_type: z.enum(['vanilla', 'paper', 'purpur', 'spigot', 'fabric', 'forge']).default('paper'),
+  port:        z.number().int().min(1024).max(65535).optional(),
 })
 
 export async function serverRoutes(app: FastifyInstance) {
