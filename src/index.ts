@@ -30,6 +30,7 @@ if (missingEnv.length > 0) {
 const app = Fastify({
   logger: { level: 'warn' },    // only warnings and errors reach the console
   disableRequestLogging: true,  // suppress per-request noise
+  bodyLimit: 160 * 1024 * 1024, // 160 MB — allows large mod/plugin JARs
 })
 
 //  Plugins 

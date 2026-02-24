@@ -272,6 +272,130 @@ export async function serverRoutes(app: FastifyInstance) {
     }
   })
 
+  //  File Manager (proxied from agent) 
+  /** Helper: fetch a server row + node and verify it belongs to the authed user. */
+  async function getServerForUser(id: string, userId: string) {
+    const { data } = await supabase
+      .from('servers')
+      .select('*, nodes(*)')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single()
+    return data as (typeof data & { nodes: { ip: string; agent_port: number; agent_token: string } }) | null
+  }
+
+  app.get<{ Params: { id: string } }>('/:id/files', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      const { data } = await agent.get(`/servers/${server.id}/files`, { params: req.query })
+      return data
+    } catch {
+      return reply.status(503).send({ error: 'Could not list files' })
+    }
+  })
+
+  app.get<{ Params: { id: string } }>('/:id/files/content', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      const { data } = await agent.get(`/servers/${server.id}/files/content`, { params: req.query })
+      return data
+    } catch (err: any) {
+      const status = err?.response?.status ?? 503
+      const error  = err?.response?.data?.error ?? 'Could not read file'
+      return reply.status(status).send({ error })
+    }
+  })
+
+  app.put<{ Params: { id: string }; Body: { path: string; content: string } }>('/:id/files/content', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      await agent.put(`/servers/${server.id}/files/content`, req.body)
+      return { ok: true }
+    } catch {
+      return reply.status(503).send({ error: 'Could not save file' })
+    }
+  })
+
+  app.post<{ Params: { id: string }; Body: { path: string } }>('/:id/files/mkdir', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      await agent.post(`/servers/${server.id}/files/mkdir`, req.body)
+      return { ok: true }
+    } catch {
+      return reply.status(503).send({ error: 'Could not create directory' })
+    }
+  })
+
+  app.delete<{ Params: { id: string } }>('/:id/files', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      await agent.delete(`/servers/${server.id}/files`, { params: req.query })
+      return { ok: true }
+    } catch (err: any) {
+      const status = err?.response?.status ?? 503
+      const error  = err?.response?.data?.error ?? 'Could not delete entry'
+      return reply.status(status).send({ error })
+    }
+  })
+
+  app.post<{ Params: { id: string }; Body: { from: string; to: string } }>('/:id/files/rename', { preHandler: authenticate }, async (req, reply) => {
+    const server = await getServerForUser(req.params.id, (req as any).user.sub)
+    if (!server) return reply.status(404).send({ error: 'Server not found' })
+    const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+    try {
+      await agent.post(`/servers/${server.id}/files/rename`, req.body)
+      return { ok: true }
+    } catch {
+      return reply.status(503).send({ error: 'Could not rename entry' })
+    }
+  })
+
+  //  File upload — raw binary body forwarded to agent 
+  // Fastify needs to know how to parse application/octet-stream for this route.
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body)
+  })
+
+  app.post<{ Params: { id: string } }>(
+    '/:id/files/upload',
+    { preHandler: authenticate },
+    async (req, reply) => {
+      const server = await getServerForUser(req.params.id, (req as any).user.sub)
+      if (!server) return reply.status(404).send({ error: 'Server not found' })
+
+      const pathParam = (req.query as any).path as string | undefined
+      if (!pathParam) return reply.status(400).send({ error: 'path query param is required' })
+
+      const body = req.body as Buffer
+      if (!body || body.length === 0) return reply.status(400).send({ error: 'Empty file body' })
+
+      const agent = agentClient(server.nodes.ip, server.nodes.agent_port, server.nodes.agent_token)
+      try {
+        await agent.post(`/servers/${server.id}/files/upload`, body, {
+          params:  { path: pathParam },
+          headers: { 'Content-Type': 'application/octet-stream' },
+          maxBodyLength: 160 * 1024 * 1024,
+          maxContentLength: 160 * 1024 * 1024,
+        })
+        return { ok: true }
+      } catch (err: any) {
+        const status = err?.response?.status ?? 503
+        const error  = err?.response?.data?.error ?? 'Upload failed'
+        return reply.status(status).send({ error })
+      }
+    },
+  )
+
   //  Delete server 
   app.delete<{ Params: { id: string } }>('/:id', { preHandler: authenticate }, async (req, reply) => {
     const user = (req as any).user
